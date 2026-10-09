@@ -22,7 +22,7 @@ data "aws_iam_role" "lab_role" {
 resource "aws_eks_cluster" "main" {
   name     = "${var.resource_prefix}-eks-cluster"
   role_arn = data.aws_iam_role.lab_role.arn # Tambahkan "data."
-  version  = "1.28"
+  version  = "1.30"
 
   vpc_config {
     subnet_ids         = var.private_subnet_ids
