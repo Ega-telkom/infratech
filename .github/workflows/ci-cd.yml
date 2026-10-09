@@ -1,0 +1,137 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main", "master" ]
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  MONITORING_REGION: ${{ secrets.MONITORING_REGION }}
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  ECR_API_REPO: lks-api-app
+  ECR_FE_REPO: lks-fe-app
+
+jobs:
+  # Job 1: Install & Smoke Test
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-api.txt
+          pip install -r requirements-frontend.txt
+
+      - name: Smoke-test Imports
+        run: |
+          python -c "import flask, psycopg2, redis, boto3, prometheus_client; print('API dependencies OK')"
+          python -c "import flask, jinja2; print('Frontend dependencies OK')"
+
+  # Job 2: Build & Push to ECR
+  build_and_push_ecr:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push API Docker Image
+        run: |
+          docker build -f docker/Dockerfile.api -t ${{ secrets.ECR_REGISTRY }}/$ECR_API_REPO:${{ github.sha }} .
+          docker push ${{ secrets.ECR_REGISTRY }}/$ECR_API_REPO:${{ github.sha }}
+
+      - name: Build and Push Frontend Docker Image
+        run: |
+          docker build -f docker/Dockerfile.frontend -t ${{ secrets.ECR_REGISTRY }}/$ECR_FE_REPO:${{ github.sha }} .
+          docker push ${{ secrets.ECR_REGISTRY }}/$ECR_FE_REPO:${{ github.sha }}
+
+  # Job 3: Upload Metadata to S3
+  upload_to_s3:
+    needs: build_and_push_ecr
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Generate and Upload Deployment Metadata
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          cat <<EOF > deployment.json
+          {
+            "commit_sha": "${{ github.sha }}",
+            "timestamp": "$TIMESTAMP",
+            "student_name": "${{ secrets.STUDENT_NAME }}",
+            "api_image": "${{ secrets.ECR_REGISTRY }}/$ECR_API_REPO:${{ github.sha }}",
+            "frontend_image": "${{ secrets.ECR_REGISTRY }}/$ECR_FE_REPO:${{ github.sha }}"
+          }
+          EOF
+          aws s3 cp deployment.json s3://${{ secrets.TF_STATE_BUCKET }}/metadata/${{ github.sha }}.json
+
+  # Job 4: Deploy via Terraform
+  deploy:
+    needs: upload_to_s3
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: |
+          terraform plan \
+            -var="image_tag=${{ github.sha }}" \
+            -var="student_name=${{ secrets.STUDENT_NAME }}" \
+            -var="aws_region=${{ secrets.AWS_REGION }}" \
+            -var="monitoring_region=${{ secrets.MONITORING_REGION }}"
+
+      - name: Terraform Apply
+        run: |
+          terraform apply -auto-approve \
+            -var="image_tag=${{ github.sha }}" \
+            -var="student_name=${{ secrets.STUDENT_NAME }}" \
+            -var="aws_region=${{ secrets.AWS_REGION }}" \
+            -var="monitoring_region=${{ secrets.MONITORING_REGION }}"
