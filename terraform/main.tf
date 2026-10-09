@@ -282,7 +282,7 @@ module "elasticache" {
   vpc_id            = module.data_vpc.vpc_id
   subnet_ids        = module.data_vpc.isolated_subnet_ids
   security_group_id = aws_security_group.data_cache.id
-  engine_version    = "7.1"
+  engine_version    = "7.0.7"
   node_type         = "cache.t3.micro"
 }
 
