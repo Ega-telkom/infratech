@@ -9,7 +9,7 @@ variable "resource_prefix" { type = string }
 resource "aws_kinesis_stream" "main" {
   name             = "${var.resource_prefix}-event-stream"
   shard_count      = 1
-  retention_period = 168
+  retention_period = 24
   tags             = { Name = "${var.resource_prefix}-event-stream" }
 }
 
