@@ -268,7 +268,7 @@ module "rds_aurora" {
   security_group_id    = aws_security_group.data_db.id
   master_username      = "postgres"
   allocated_storage    = 20
-  db_engine_version    = "16.4"
+  db_engine_version    = "16.1"
 }
 
 ###############################################################################
