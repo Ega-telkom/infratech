@@ -18,7 +18,7 @@ resource "aws_elasticache_subnet_group" "main" {
 
 resource "aws_elasticache_cluster" "main" {
   cluster_id           = "${var.resource_prefix}-redis"
-  engine               = "memcached"
+  engine               = "redis"
   engine_version       = var.engine_version
   node_type            = var.node_type
   num_cache_nodes      = 1
