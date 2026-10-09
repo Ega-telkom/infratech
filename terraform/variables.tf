@@ -4,12 +4,6 @@ variable "image_tag" {
   default     = "latest"
 }
 
-variable "student_name" {
-  type        = string
-  description = "Nama peserta LKS"
-  default     = "Egagantenggg"
-}
-
 variable "aws_region" {
   type        = string
   description = "AWS Region utama"
