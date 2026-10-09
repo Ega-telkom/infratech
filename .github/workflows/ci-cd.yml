@@ -114,6 +114,10 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      - name: Zip Lambda Function
+        run: |
+          zip -j lambda/event-processor.zip lambda/event-processor.py
+
       - name: Terraform Init
         run: |
           terraform init -input=false \
